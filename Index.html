@@ -1,1 +1,356 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Historia Clínica — Asistente Web</title>
+<meta name="description" content="Asistente web para historia clínica psicológica. 100% local en tu navegador.">
+<style>
+  :root { --gap: 12px; --radius: 12px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; padding:24px; background:#fafafa; color:#222; }
+  header { max-width: 900px; margin: 0 auto 16px; }
+  h1 { margin:0 0 8px; font-size: 1.8rem; }
+  p.muted { color:#666; margin:0 0 16px; }
+  .container { max-width: 900px; margin: 0 auto; }
+  .card { background:#fff; border:1px solid #e6e6e6; border-radius: var(--radius); padding:16px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+  .row { display:flex; gap:var(--gap); flex-wrap:wrap; }
+  .row > .col { flex:1 1 280px; min-width: 260px; }
+  label { display:block; font-weight:600; margin:12px 0 6px; }
+  input[type="text"], input[type="date"], input[type="number"], select, textarea {
+    width:100%; padding:10px 12px; border:1px solid #d9d9d9; border-radius:8px; background:#fff;
+  }
+  textarea { min-height: 88px; resize: vertical; }
+  .actions { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  button { padding:10px 14px; border:1px solid #cfcfcf; background:#fff; border-radius:10px; cursor:pointer; }
+  button.primary { background:#0b5; color:#fff; border-color:#0b5; }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  .progress { height:8px; background:#eee; border-radius:999px; overflow:hidden; margin:12px 0 18px; }
+  .bar { height:100%; width:0; background:#0b5; transition: width .25s ease; }
+  .hidden { display:none !important; }
+  .small { font-size:.92rem; color:#555; }
+  .footnote { font-size:.86rem; color:#777; margin-top:8px; }
+  .preview table { width:100%; border-collapse: collapse; }
+  .preview th, .preview td { border:1px solid #eee; padding:8px; text-align:left; vertical-align: top; }
+  .chip { display:inline-block; padding:2px 8px; border:1px solid #ddd; border-radius:999px; font-size:.85rem; color:#444; margin:2px 6px 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧠 Historia Clínica — Asistente Web</h1>
+  <p class="muted">Funciona 100% en tu navegador. Al final podrás descargar la hoja organizada por áreas en <strong>.DOCX</strong> y <strong>.JSON</strong>. No sube datos a ningún servidor.</p>
+  <div class="progress"><div id="bar" class="bar"></div></div>
+</header>
 
+<main class="container">
+  <div id="app" class="card"></div>
+
+  <div class="actions">
+    <button id="prev">⬅️ Atrás</button>
+    <button id="next">Siguiente ➡️</button>
+    <button id="finish" class="primary hidden">Generar hoja ✅</button>
+  </div>
+
+  <div id="result" class="card hidden" style="margin-top:16px;"></div>
+  <p class="footnote">Privacidad: añade tu propio <em>Aviso de Privacidad</em> y consentimiento informado. Si activas “Guardar local”, la información se guardará en este dispositivo (localStorage) para continuar luego.</p>
+</main>
+
+<!-- Librería para generar DOCX en el navegador -->
+<script src="https://unpkg.com/docx@8.5.0/build/index.js"></script>
+<script>
+/* ============ Configuración del asistente ============ */
+const AREAS = [
+  {t:"Identificación", fields:[
+    {k:"Nombre", type:"text", req:true},
+    {k:"Edad", type:"number", min:0, max:110},
+    {k:"Sexo", type:"select", options:["Femenino","Masculino","No binario","Prefiere no decir"]},
+    {k:"Fecha de nacimiento", type:"date"},
+    {k:"Contacto", type:"text"},
+    {k:"Referencia", type:"text"},
+    {k:"Consentimiento", type:"checkbox"}
+  ]},
+  {t:"Motivo de consulta", fields:[
+    {k:"Motivo", type:"textarea"},
+    {k:"Inicio", type:"text"},
+    {k:"Curso", type:"select", options:["Agudo","Crónico","Episodios recurrentes"]},
+    {k:"Objetivos del paciente", type:"textarea"}
+  ]},
+  {t:"Historia del problema", fields:[
+    {k:"Desencadenantes", type:"textarea"},
+    {k:"Mantenedores", type:"textarea"},
+    {k:"Intentos previos", type:"textarea"},
+    {k:"Antecedentes", type:"textarea"}
+  ]},
+  {t:"Antecedentes personales y familiares", fields:[
+    {k:"Médicos/neurológicos", type:"textarea"},
+    {k:"Psicológicos/psiquiátricos", type:"textarea"},
+    {k:"Familiares", type:"textarea"},
+    {k:"Acontecimientos/trauma", type:"textarea"},
+    {k:"Sustancias", type:"select", options:["Ninguno","Ocasional","Frecuente","Problemático"]}
+  ]},
+  {t:"Funcionamiento actual", fields:[
+    {k:"Sueño", type:"textarea"},
+    {k:"Alimentación", type:"textarea"},
+    {k:"Actividad/ocio", type:"textarea"},
+    {k:"Escolar/Laboral", type:"textarea"},
+    {k:"Relaciones/Apoyo", type:"textarea"},
+    {k:"Ánimo/Ansiedad", type:"textarea"},
+    {k:"Otros síntomas", type:"textarea"}
+  ]},
+  {t:"Evaluación de riesgo", fields:[
+    {k:"Ideación", type:"select", options:["No","Sí"]},
+    {k:"Plan", type:"select", options:["No","Sí"]},
+    {k:"Acceso a medios", type:"select", options:["No","Sí"]},
+    {k:"Autolesión", type:"select", options:["No","Sí"]},
+    {k:"Riesgo a terceros", type:"select", options:["No","Sí"]},
+    {k:"Protección", type:"textarea"},
+    {k:"Plan de manejo", type:"textarea"}
+  ]},
+  {t:"Formulación breve", fields:[
+    {k:"Modelo", type:"select", options:["Cognitivo-conductual","Humanista","Sistémico","Psicodinámico","Integrativo"]},
+    {k:"Hipótesis", type:"textarea"},
+    {k:"Diagnóstico presuntivo", type:"textarea"}
+  ]},
+  {t:"Plan y objetivos", fields:[
+    {k:"Objetivos", type:"textarea"},
+    {k:"Intervenciones", type:"textarea"},
+    {k:"Tareas", type:"textarea"},
+    {k:"Próxima cita", type:"text"}
+  ]}
+];
+
+const STATE_KEY = "historiaClinica_v1"; // para guardar local si activas la opción
+let step = 0;
+let answers = loadState() || baseState();
+updateBar();
+
+/* ============ Render principal ============ */
+const app = document.getElementById("app");
+const prevBtn = document.getElementById("prev");
+const nextBtn = document.getElementById("next");
+const finishBtn = document.getElementById("finish");
+const resultDiv = document.getElementById("result");
+
+renderStep();
+
+prevBtn.onclick = () => { collect(); step = Math.max(0, step-1); renderStep(); };
+nextBtn.onclick = () => {
+  if (!validateStep()) return;
+  collect(); step = Math.min(AREAS.length-1, step+1); renderStep();
+};
+finishBtn.onclick = async () => {
+  if (!validateStep()) return;
+  collect(); showSummary();
+};
+
+/* ============ Funciones ============ */
+function baseState(){
+  const obj = Object.fromEntries(AREAS.map(a=>[a.t, {}]));
+  obj._fecha_registro = new Date().toISOString().slice(0,10);
+  obj._guardar_local = false;
+  return obj;
+}
+
+function saveState(){
+  if (answers._guardar_local) localStorage.setItem(STATE_KEY, JSON.stringify(answers));
+  else localStorage.removeItem(STATE_KEY);
+}
+function loadState(){
+  try { return JSON.parse(localStorage.getItem(STATE_KEY)); } catch(e){ return null; }
+}
+
+function renderStep(){
+  updateBar();
+  const area = AREAS[step];
+  app.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <h2>${step+1}) ${area.t}</h2>
+    <div class="small">Completa los campos. Los marcados con * son obligatorios.</div>
+  `;
+  const form = document.createElement("div");
+  form.className = "row";
+  area.fields.forEach(f=>{
+    const col = document.createElement("div");
+    col.className = "col";
+    const id = `${area.t}-${f.k}`.replace(/\s+/g,'_');
+    const label = document.createElement("label");
+    label.htmlFor = id;
+    label.textContent = f.k + (f.req ? " *" : "");
+    let ctrl;
+    if (["text","date","number"].includes(f.type)){
+      ctrl = document.createElement("input");
+      ctrl.type = f.type;
+      if (f.min !== undefined) ctrl.min = f.min;
+      if (f.max !== undefined) ctrl.max = f.max;
+    } else if (f.type === "textarea"){
+      ctrl = document.createElement("textarea");
+      ctrl.rows = 3;
+    } else if (f.type === "checkbox"){
+      ctrl = document.createElement("input");
+      ctrl.type = "checkbox";
+    } else if (f.type === "select"){
+      ctrl = document.createElement("select");
+      (f.options||[]).forEach(o=>{
+        const opt = document.createElement("option");
+        opt.value = o; opt.textContent = o; ctrl.appendChild(opt);
+      });
+    }
+    ctrl.id = id;
+    ctrl.dataset.area = area.t;
+    ctrl.dataset.field = f.k;
+
+    // set previous value
+    const prev = answers[area.t][f.k];
+    if (f.type === "checkbox") ctrl.checked = prev === "Sí";
+    else if (prev) ctrl.value = prev;
+
+    col.appendChild(label); col.appendChild(ctrl);
+    form.appendChild(col);
+  });
+
+  // opciones globales
+  const opts = document.createElement("div");
+  opts.style.marginTop = "6px";
+  opts.innerHTML = `
+    <span class="chip">Fecha: ${answers._fecha_registro}</span>
+    <label style="margin-left:8px;">
+      <input id="keepLocal" type="checkbox" ${answers._guardar_local ? "checked":""} />
+      Guardar local en este dispositivo (para continuar después)
+    </label>
+  `;
+
+  wrap.appendChild(form);
+  wrap.appendChild(opts);
+  app.appendChild(wrap);
+
+  // botones visible/oculto
+  prevBtn.disabled = step === 0;
+  nextBtn.classList.toggle("hidden", step === AREAS.length-1);
+  finishBtn.classList.toggle("hidden", step !== AREAS.length-1);
+
+  // toggle guardar local
+  document.getElementById("keepLocal").onchange = (e)=>{
+    answers._guardar_local = e.target.checked;
+    saveState();
+  };
+}
+
+function collect(){
+  const inputs = app.querySelectorAll("input, textarea, select");
+  inputs.forEach(el=>{
+    const area = el.dataset.area, field = el.dataset.field;
+    if (!area) return;
+    let val = "";
+    if (el.type === "checkbox") val = el.checked ? "Sí" : "No";
+    else val = el.value || "";
+    answers[area][field] = val;
+  });
+  saveState();
+}
+
+function validateStep(){
+  const area = AREAS[step];
+  let ok = true, msg = [];
+  area.fields.forEach(f=>{
+    if (f.req){
+      const id = `${area.t}-${f.k}`.replace(/\s+/g,'_');
+      const el = document.getElementById(id);
+      const val = (f.type === "checkbox") ? (el.checked ? "Sí":"") : (el.value||"");
+      if (!val) { ok = false; msg.push(`• ${area.t}: ${f.k}`); }
+    }
+  });
+  if (!ok) alert("Faltan campos obligatorios:\n\n" + msg.join("\n"));
+  return ok;
+}
+
+function updateBar(){
+  const pct = ((step) / (AREAS.length-1)) * 100;
+  document.getElementById("bar").style.width = Math.max(5, pct) + "%";
+}
+
+function showSummary(){
+  // vista previa
+  resultDiv.classList.remove("hidden");
+  resultDiv.innerHTML = `<h3>✅ Hoja organizada por áreas</h3><div class="preview"></div>
+    <div class="actions" style="margin-top:12px;">
+      <button id="dlDocx" class="primary">⬇️ Descargar .DOCX</button>
+      <button id="dlJson">⬇️ Descargar .JSON</button>
+      <button id="reset">🗑️ Limpiar todo</button>
+    </div>
+    <div class="footnote">Tip: el .DOCX trae encabezados por área (H1/H2). Puedes abrirlo en Word/Google Docs.</div>`;
+
+  const preview = resultDiv.querySelector(".preview");
+  preview.innerHTML = "";
+  AREAS.forEach(area=>{
+    const bloque = answers[area.t] || {};
+    let html = `<h4>${area.t}</h4><table>`;
+    Object.entries(bloque).forEach(([k,v])=>{
+      html += `<tr><th style="width:28%">${k}</th><td>${(v||"—").toString().replace(/\n/g,"<br>")}</td></tr>`;
+    });
+    html += "</table>";
+    const sec = document.createElement("section");
+    sec.innerHTML = html;
+    preview.appendChild(sec);
+  });
+
+  // descargas
+  document.getElementById("dlJson").onclick = ()=>downloadBlob(
+    new Blob([JSON.stringify(answers, null, 2)], {type:"application/json"}),
+    filenameBase()+"-historia.json"
+  );
+  document.getElementById("reset").onclick = ()=>{ localStorage.removeItem(STATE_KEY); answers = baseState(); step = 0; renderStep(); resultDiv.classList.add("hidden"); };
+
+  document.getElementById("dlDocx").onclick = async ()=>{
+    const blob = await buildDocx(answers);
+    downloadBlob(blob, filenameBase()+"-historia.docx");
+  };
+}
+
+function filenameBase(){
+  const fecha = answers._fecha_registro || new Date().toISOString().slice(0,10);
+  const nombre = (answers["Identificación"]?.["Nombre"] || "Sin_nombre")
+                 .replace(/[^\w\s-]/g,"").replace(/\s+/g,"_");
+  return `${fecha}__${nombre}`;
+}
+
+function downloadBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+
+/* ============ Generar DOCX (cliente) ============ */
+async function buildDocx(datos){
+  const { Document, Packer, Paragraph, HeadingLevel, TextRun } = docx;
+
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: [
+        new Paragraph({ text: "Historia Clínica Psicológica", heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: `Fecha de registro: ${datos._fecha_registro || ""}` }),
+        ...AREAS.flatMap(area=>{
+          const bloque = datos[area.t] || {};
+          const pares = Object.entries(bloque);
+          return [
+            new Paragraph({ text: area.t, heading: HeadingLevel.HEADING_2 }),
+            ...pares.map(([k,v])=> new Paragraph({
+              children: [
+                new TextRun({ text: `${k}: `, bold:true }),
+                new TextRun({ text: (v||"—").toString() })
+              ]
+            }))
+          ];
+        })
+      ]
+    }]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  return blob;
+}
+</script>
+</body>
+</html>
